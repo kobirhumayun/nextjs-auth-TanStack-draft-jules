@@ -2,12 +2,14 @@
 "use client";
 
 import { Suspense } from "react";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { ordersListOptions } from "@/lib/queries/orders";
 import {
   analyticsSummaryOptions,
   slowReportOptions,
 } from "@/lib/queries/analytics";
+import { Button } from "@/components/ui/button";
+import { qk } from "@/lib/query-keys";
 
 // function OrdersCard() {
 //   const { data } = useSuspenseQuery(ordersListOptions({ limit: 5 }));
@@ -25,9 +27,30 @@ function SlowReportCard() {
 }
 
 export default function DashboardClient() {
+  const queryClient = useQueryClient();
   return (
     <>
       <h1>Dashboard</h1>
+      <div className="flex space-x-2">
+        <Button
+          onClick={() =>
+            queryClient.invalidateQueries({
+              queryKey: qk.analytics.summary(),
+            })
+          }
+        >
+          Refetch Summary
+        </Button>
+        <Button
+          onClick={() =>
+            queryClient.invalidateQueries({
+              queryKey: qk.analytics.slowReport(),
+            })
+          }
+        >
+          Refetch Report
+        </Button>
+      </div>
       {/* <Suspense fallback={<p>Loading orders…</p>}>
         <OrdersCard />
       </Suspense> */}
