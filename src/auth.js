@@ -221,39 +221,45 @@ export const {
   ],
   callbacks: {
     async jwt({ token, user }) {
+      // On initial sign-in, populate the token with values from the user object
       if (user) {
         token.sub = user.id ?? token.sub;
         token.id = user.id ?? token.id ?? null;
         token.username = user.username ?? token.username ?? null;
         token.email = user.email ?? token.email ?? null;
         token.role = user.role ?? token.role ?? null;
-
         token.user = user.profile ?? token.user ?? null;
         token.accessToken = user.accessToken;
         token.refreshToken = user.refreshToken;
         token.accessTokenExpires = user.accessTokenExpires;
-        token.refreshJitterMs = user.refreshJitterMs ?? token.refreshJitterMs ?? 0;
+        token.refreshJitterMs = user.refreshJitterMs ?? 0;
         token.error = undefined;
-        token.refreshError = undefined;
         return token;
       }
 
-      if (token?.refreshError?.status === 401 || token?.refreshError?.status === 403) {
-        // The refresh token is no longer valid. Sign the user out.
+      // If the token already has an error from a previous refresh attempt, invalidate it.
+      if (token.error === "RefreshAccessTokenError") {
         return null;
       }
 
+      // Check if the access token is expired or close to expiring
       const jitter  = Number(token.refreshJitterMs || 0);
       const expires = Number(token.accessTokenExpires || 0);
       const needsRefresh = !expires || Date.now() >= (expires - (EARLY_REFRESH_WINDOW_MS + jitter));
-      if (!needsRefresh) return token;
 
-      try {
-        const refreshed = await getOrCreateRefreshPromise(token, refreshAccessToken);
-        return refreshed;
-      } catch {
-        return { ...token, error: "RefreshAccessTokenError" };
+      if (!needsRefresh) {
+        return token;
       }
+
+      // Attempt to refresh the token
+      const refreshedToken = await getOrCreateRefreshPromise(token, refreshAccessToken);
+
+      // If the refresh failed for any reason, invalidate the session.
+      if (refreshedToken.error === "RefreshAccessTokenError") {
+        return null;
+      }
+
+      return refreshedToken;
     },
     async session({ session, token }) {
       if (token?.error === "RefreshAccessTokenError") {
