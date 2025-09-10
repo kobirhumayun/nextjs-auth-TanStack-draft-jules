@@ -34,7 +34,7 @@ export default function DashboardClient() {
       <div className="flex space-x-2">
         <Button
           onClick={() =>
-            queryClient.invalidateQueries({
+            queryClient.refetchQueries({
               queryKey: qk.analytics.summary(),
             })
           }
@@ -43,7 +43,7 @@ export default function DashboardClient() {
         </Button>
         <Button
           onClick={() =>
-            queryClient.invalidateQueries({
+            queryClient.refetchQueries({
               queryKey: qk.analytics.slowReport(),
             })
           }
