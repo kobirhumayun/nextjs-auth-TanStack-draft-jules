@@ -238,7 +238,10 @@ export const {
         return token;
       }
 
-      if (token?.refreshError?.status === 401 || token?.refreshError?.status === 403) return token;
+      if (token?.refreshError?.status === 401 || token?.refreshError?.status === 403) {
+        // The refresh token is no longer valid. Sign the user out.
+        return null;
+      }
 
       const jitter  = Number(token.refreshJitterMs || 0);
       const expires = Number(token.accessTokenExpires || 0);
