@@ -30,7 +30,10 @@ function prepareInit(init, bearer, { skipAuth = false } = {}) {
     h["Content-Type"] = h["Content-Type"] || "application/json";
     final.body = JSON.stringify(body);
   }
-  if (final.credentials === undefined) final.credentials = "omit";
+  // Use cookies when running in the browser; omit them on the server
+  if (final.credentials === undefined) {
+    final.credentials = isServer() ? "omit" : "same-origin";
+  }
   final.headers = h;
   return final;
 }
@@ -40,7 +43,7 @@ async function markDynamicIfServer() {
   try {
     const mod = await import("next/headers");
     void mod.headers(); // mark route dynamic for fetch caching
-  } catch {}
+  } catch { }
 }
 
 export async function apiRequest(input, init = {}) {
