@@ -8,7 +8,7 @@ import { getQueryClient } from "./get-query-client";
 export default function Providers({ children }) {
   const queryClient = getQueryClient();
   return (
-    <SessionProvider>
+    <SessionProvider refetchOnWindowFocus={true} refetchInterval={60}>
       <QueryClientProvider client={queryClient}>
         {children}
         {/* <ReactQueryDevtools initialIsOpen={false} /> */}
