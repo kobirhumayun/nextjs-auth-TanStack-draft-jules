@@ -29,7 +29,7 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = DEFAULT_TIMEOUT_MS) 
   finally { clearTimeout(id); }
 }
 function expFromJwtMs(token, fallbackMs = 15 * 60 * 1000) {
-  try { const d = jwtDecode(token); if (d && typeof d.exp === "number") return d.exp * 1000; } catch {}
+  try { const d = jwtDecode(token); if (d && typeof d.exp === "number") return d.exp * 1000; } catch { }
   return Date.now() + fallbackMs;
 }
 function computeAccessTokenExpires(data, accessToken) {
@@ -43,7 +43,7 @@ function stableJitterMs(input) {
   const buf = createHmac("sha256", KEY_SALT).update(String(input)).digest();
   return ((buf[0] << 8) | buf[1]) % 10_000;
 }
-function lockKeyFor(key)   { return `${REDIS_PREFIX}:refresh:lock:${key}`; }
+function lockKeyFor(key) { return `${REDIS_PREFIX}:refresh:lock:${key}`; }
 function resultKeyFor(key) { return `${REDIS_PREFIX}:refresh:result:${key}`; }
 
 const refreshPromisesByKey = new Map();
@@ -70,7 +70,7 @@ async function distributedSingleFlightRefresh(token, refreshFn) {
   try {
     const cachedStr = await redis.get(rKey);
     if (cachedStr) return JSON.parse(cachedStr);
-  } catch {}
+  } catch { }
 
   const lockId = randomUUID();
   let haveLock = false;
@@ -84,7 +84,7 @@ async function distributedSingleFlightRefresh(token, refreshFn) {
   if (haveLock) {
     let keepAlive;
     try {
-      keepAlive = setInterval(() => { redis.pexpire(lKey, LOCK_TTL_MS).catch(() => {}); },
+      keepAlive = setInterval(() => { redis.pexpire(lKey, LOCK_TTL_MS).catch(() => { }); },
         Math.max(250, Math.floor(LOCK_TTL_MS / 2)));
 
       const refreshed = await refreshFn(token);
@@ -92,12 +92,12 @@ async function distributedSingleFlightRefresh(token, refreshFn) {
       const expiresMs = Number(refreshed?.accessTokenExpires || 0);
       const msUntilEarly = Math.max(0, expiresMs - Date.now() - EARLY_REFRESH_WINDOW_MS);
       const resultTtlMs = Math.max(2_000, Math.min(RESULT_TTL_CAP_MS, msUntilEarly || RESULT_TTL_CAP_MS));
-      try { await redis.set(rKey, JSON.stringify(refreshed), "PX", resultTtlMs); } catch {}
+      try { await redis.set(rKey, JSON.stringify(refreshed), "PX", resultTtlMs); } catch { }
 
       return refreshed;
     } finally {
-      try { clearInterval(keepAlive); } catch {}
-      try { await redis.eval(UNLOCK_LUA, 1, lKey, lockId); } catch {}
+      try { clearInterval(keepAlive); } catch { }
+      try { await redis.eval(UNLOCK_LUA, 1, lKey, lockId); } catch { }
     }
   }
 
@@ -106,7 +106,7 @@ async function distributedSingleFlightRefresh(token, refreshFn) {
     try {
       const cachedStr = await redis.get(rKey);
       if (cachedStr) return JSON.parse(cachedStr);
-    } catch {}
+    } catch { }
     await sleep(POLL_INTERVAL_MS);
   }
 
@@ -115,7 +115,7 @@ async function distributedSingleFlightRefresh(token, refreshFn) {
     try {
       const cachedStr = await redis.get(rKey);
       if (cachedStr) return JSON.parse(cachedStr);
-    } catch {}
+    } catch { }
   }
   return attempt;
 }
@@ -184,8 +184,10 @@ export const {
         try {
           res = await fetchWithTimeout(
             backendUrl("/api/users/login"),
-            { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ identifier: credentials.identifier, password: credentials.password }) },
+            {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ identifier: credentials.identifier, password: credentials.password })
+            },
             DEFAULT_TIMEOUT_MS
           );
         } catch { return null; }
@@ -198,15 +200,15 @@ export const {
         const accessTokenExpires = computeAccessTokenExpires(data, accessToken);
 
         let decoded = {};
-        try { decoded = jwtDecode(accessToken) || {}; } catch {}
+        try { decoded = jwtDecode(accessToken) || {}; } catch { }
 
-        const id       = (decoded?.sub ?? data?.user?.id ?? null) && String(decoded?.sub ?? data?.user?.id);
+        const id = (decoded?.sub ?? data?.user?.id ?? null) && String(decoded?.sub ?? data?.user?.id);
         const username = (data?.user?.username ?? decoded?.username ?? data?.user?.name ?? null) || null;
-        const email    = (data?.user?.email ?? decoded?.email ?? null) || null;
-        const role     = (data?.user?.role ?? decoded?.role ?? null) || null;
+        const email = (data?.user?.email ?? decoded?.email ?? null) || null;
+        const role = (data?.user?.role ?? decoded?.role ?? null) || null;
 
-        const userKey   = refreshKeyFor({ refreshToken: data.refreshToken, sub: id });
-        const jitterMs  = stableJitterMs(userKey);
+        const userKey = refreshKeyFor({ refreshToken: data.refreshToken, sub: id });
+        const jitterMs = stableJitterMs(userKey);
 
         return {
           id, username, email, role,
@@ -221,45 +223,36 @@ export const {
   ],
   callbacks: {
     async jwt({ token, user }) {
-      // On initial sign-in, populate the token with values from the user object
       if (user) {
         token.sub = user.id ?? token.sub;
         token.id = user.id ?? token.id ?? null;
         token.username = user.username ?? token.username ?? null;
         token.email = user.email ?? token.email ?? null;
         token.role = user.role ?? token.role ?? null;
+
         token.user = user.profile ?? token.user ?? null;
         token.accessToken = user.accessToken;
         token.refreshToken = user.refreshToken;
         token.accessTokenExpires = user.accessTokenExpires;
-        token.refreshJitterMs = user.refreshJitterMs ?? 0;
+        token.refreshJitterMs = user.refreshJitterMs ?? token.refreshJitterMs ?? 0;
         token.error = undefined;
+        token.refreshError = undefined;
         return token;
       }
 
-      // If the token already has an error from a previous refresh attempt, invalidate it.
-      if (token.error === "RefreshAccessTokenError") {
-        return null;
-      }
+      if (token?.refreshError?.status === 401 || token?.refreshError?.status === 403) return token;
 
-      // Check if the access token is expired or close to expiring
-      const jitter  = Number(token.refreshJitterMs || 0);
+      const jitter = Number(token.refreshJitterMs || 0);
       const expires = Number(token.accessTokenExpires || 0);
       const needsRefresh = !expires || Date.now() >= (expires - (EARLY_REFRESH_WINDOW_MS + jitter));
+      if (!needsRefresh) return token;
 
-      if (!needsRefresh) {
-        return token;
+      try {
+        const refreshed = await getOrCreateRefreshPromise(token, refreshAccessToken);
+        return refreshed;
+      } catch {
+        return { ...token, error: "RefreshAccessTokenError" };
       }
-
-      // Attempt to refresh the token
-      const refreshedToken = await getOrCreateRefreshPromise(token, refreshAccessToken);
-
-      // If the refresh failed for any reason, invalidate the session.
-      if (refreshedToken.error === "RefreshAccessTokenError") {
-        return null;
-      }
-
-      return refreshedToken;
     },
     async session({ session, token }) {
       if (token?.error === "RefreshAccessTokenError") {
